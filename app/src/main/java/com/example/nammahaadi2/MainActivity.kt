@@ -63,15 +63,244 @@ class MainActivity : ComponentActivity() {
         statusRef.setValue("Online: Namma Haadi")
 
         setContent {
-            var currentScreen by remember { mutableStateOf(if (auth.currentUser == null) "welcome" else "home") }
+            var isDarkMode by remember { mutableStateOf(false) }
+            val colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()
+            
+            var currentScreen by remember { mutableStateOf("splash") }
+            var isUserLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
 
-            MaterialTheme {
+            MaterialTheme(colorScheme = colorScheme) {
                 when (currentScreen) {
+                    "splash" -> SplashScreen { 
+                        currentScreen = if (isUserLoggedIn) "dashboard" else "welcome" 
+                    }
                     "welcome" -> WelcomeScreen { currentScreen = "login" }
-                    "login" -> LoginPage(auth) { currentScreen = "home" }
-                    "home" -> NammaHaadiHomepage(database, auth, fusedLocationClient) { currentScreen = "login" }
+                    "login" -> LoginPage(auth) { 
+                        isUserLoggedIn = true
+                        currentScreen = "dashboard" 
+                    }
+                    "dashboard" -> DashboardScreen(
+                        database = database,
+                        auth = auth,
+                        isDarkMode = isDarkMode,
+                        onToggleTheme = { isDarkMode = !isDarkMode },
+                        onGoToMap = { currentScreen = "map" },
+                        onViewLeaderboard = { currentScreen = "leaderboard_full" },
+                        onLogout = { 
+                            auth.signOut()
+                            isUserLoggedIn = false
+                            currentScreen = "welcome" 
+                        }
+                    )
+                    "map" -> NammaHaadiHomepage(database, auth, fusedLocationClient) { 
+                        currentScreen = "dashboard" 
+                    }
+                    "leaderboard_full" -> FullLeaderboardScreen(database) { 
+                        currentScreen = "dashboard" 
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SplashScreen(onTimeout: () -> Unit) {
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2000)
+        onTimeout()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.primary),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = null,
+                modifier = Modifier.size(100.dp),
+                tint = Color.White
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Namma Haadi",
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            CircularProgressIndicator(
+                modifier = Modifier.padding(top = 32.dp),
+                color = Color.White.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+fun DashboardScreen(
+    database: FirebaseDatabase,
+    auth: FirebaseAuth,
+    isDarkMode: Boolean,
+    onToggleTheme: () -> Unit,
+    onGoToMap: () -> Unit,
+    onViewLeaderboard: () -> Unit,
+    onLogout: () -> Unit
+) {
+    var userScore by remember { mutableStateOf(0) }
+    val userEmail = auth.currentUser?.email ?: "Explorer"
+    
+    LaunchedEffect(Unit) {
+        val userId = auth.currentUser?.uid ?: "anonymous"
+        database.getReference("leaderboard/$userId/score").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                userScore = snapshot.getValue(Int::class.java) ?: 0
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(24.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Namaskara,", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
+                Text(userEmail.split("@")[0], fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Row {
+                IconButton(onClick = onToggleTheme) {
+                    Icon(
+                        imageVector = if (isDarkMode) Icons.Default.CheckCircle else Icons.Default.Check,
+                        contentDescription = "Toggle Theme",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(onClick = onLogout) {
+                    Icon(Icons.Default.ExitToApp, "Logout", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Points Summary Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Current Score", color = Color.White.copy(alpha = 0.8f))
+                    Text("$userScore Points", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Icon(Icons.Default.Star, null, tint = Color(0xFFFBC02D), modifier = Modifier.size(48.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text("Quick Actions", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            DashboardActionCard(
+                modifier = Modifier.weight(1f),
+                title = "Open Map",
+                icon = Icons.Default.Place,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                onClick = onGoToMap
+            )
+            DashboardActionCard(
+                modifier = Modifier.weight(1f),
+                title = "Leaderboard",
+                icon = Icons.Default.List,
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                onClick = onViewLeaderboard
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Community Impact Section
+        Text("Your Impact", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Shortcuts Mapped: ${userScore / 10}", fontWeight = FontWeight.Medium)
+                Text("Road Status Updates: ${userScore % 10}", fontWeight = FontWeight.Medium)
+            }
+        }
+        
+        Spacer(modifier = Modifier.weight(1f))
+        
+        Button(
+            onClick = onGoToMap,
+            modifier = Modifier.fillMaxWidth().height(60.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Icon(Icons.Default.Search, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Find a Shortcut", fontWeight = FontWeight.Bold)
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun DashboardActionCard(modifier: Modifier, title: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.height(120.dp).clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        color = color
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(title, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullLeaderboardScreen(database: FirebaseDatabase, onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Community Heroes", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                }
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier.padding(padding)) {
+            LeaderboardScreen(database)
         }
     }
 }
@@ -195,91 +424,137 @@ fun LoginPage(auth: FirebaseAuth, onLoginSuccess: () -> Unit) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var isSignUp by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Namma Haadi",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Community Shortcut Guide",
-            fontSize = 16.sp,
-            modifier = Modifier.padding(bottom = 32.dp)
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Decorative Background
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.4f)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer)
+                    )
+                )
         )
 
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(60.dp))
+            
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(64.dp)
+            )
+            
+            Text(
+                text = if (isSignUp) "Create Account" else "Welcome Back",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White
+            )
+            
+            Text(
+                text = if (isSignUp) "Join the Namma Haadi community" else "Sign in to continue mapping",
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.8f)
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        if (isLoading) {
-            CircularProgressIndicator()
-        } else {
-            Button(
-                onClick = {
-                    val cleanEmail = email.trim()
-                    val cleanPassword = password.trim()
-                    
-                    if (cleanEmail.isNotEmpty() && cleanPassword.isNotEmpty()) {
-                        isLoading = true
-                        auth.signInWithEmailAndPassword(cleanEmail, cleanPassword)
-                            .addOnCompleteListener { task ->
-                                if (task.isSuccessful) {
-                                    isLoading = false
-                                    onLoginSuccess()
-                                } else {
-                                    val signInError = task.exception?.message ?: "Unknown error"
-                                    Log.w("Auth", "SignIn failed: $signInError. Attempting registration...")
-
-                                    // If login fails, try to register
-                                    auth.createUserWithEmailAndPassword(cleanEmail, cleanPassword)
-                                        .addOnCompleteListener { regTask ->
-                                            isLoading = false
-                                            if (regTask.isSuccessful) {
-                                                onLoginSuccess()
-                                            } else {
-                                                val errorMsg = regTask.exception?.message ?: "Unknown error"
-                                                val errorCode = (regTask.exception as? FirebaseAuthException)?.errorCode ?: "No code"
-                                                Log.e("AuthError", "Code: $errorCode, Message: $errorMsg")
-                                                Toast.makeText(context, "Auth failed: $errorMsg (Code: $errorCode)", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                }
-                            }
-                    } else {
-                        Toast.makeText(context, "Please enter email and password", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(32.dp),
+                elevation = CardDefaults.cardElevation(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
-                Text("Login / Sign Up")
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("Email Address") },
+                        leadingIcon = { Icon(Icons.Default.Email, null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password") },
+                        leadingIcon = { Icon(Icons.Default.Lock, null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    if (isLoading) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        Button(
+                            onClick = {
+                                val cleanEmail = email.trim()
+                                val cleanPassword = password.trim()
+                                
+                                if (cleanEmail.isNotEmpty() && cleanPassword.isNotEmpty()) {
+                                    isLoading = true
+                                    if (isSignUp) {
+                                        auth.createUserWithEmailAndPassword(cleanEmail, cleanPassword)
+                                            .addOnCompleteListener { task ->
+                                                isLoading = false
+                                                if (task.isSuccessful) onLoginSuccess()
+                                                else Toast.makeText(context, task.exception?.message ?: "Sign up failed", Toast.LENGTH_LONG).show()
+                                            }
+                                    } else {
+                                        auth.signInWithEmailAndPassword(cleanEmail, cleanPassword)
+                                            .addOnCompleteListener { task ->
+                                                isLoading = false
+                                                if (task.isSuccessful) onLoginSuccess()
+                                                else Toast.makeText(context, "Invalid credentials", Toast.LENGTH_LONG).show()
+                                            }
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Please fill all fields", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(if (isSignUp) "Register" else "Sign In", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    TextButton(onClick = { isSignUp = !isSignUp }) {
+                        Text(
+                            text = if (isSignUp) "Already have an account? Login" else "Don't have an account? Sign Up",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
         }
     }
@@ -290,6 +565,12 @@ enum class PathStatus(val label: String, val color: Color, val icon: String) {
     MUDDY("Muddy", Color(0xFFFBC02D), "🚜"),
     FLOODED("Flooded", Color.Red, "🌊")
 }
+
+data class RuralPath(
+    val points: List<LatLng>,
+    val status: PathStatus,
+    val id: String
+)
 
 @SuppressLint("MissingPermission")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -310,7 +591,7 @@ fun NammaHaadiHomepage(
     // Tracing state
     var isTracing by remember { mutableStateOf(false) }
     var tracedPoints by remember { mutableStateOf(mutableListOf<LatLng>()) }
-    var savedPaths by remember { mutableStateOf(listOf<Triple<List<LatLng>, PathStatus, String>>()) }
+    var savedPaths by remember { mutableStateOf(listOf<RuralPath>()) }
     var locationAlerts by remember { mutableStateOf(listOf<Triple<LatLng, PathStatus, String>>()) }
 
     var locationPermissionGranted by remember { 
@@ -333,28 +614,21 @@ fun NammaHaadiHomepage(
     var userScore by remember { mutableStateOf(0) }
     
     // Sync status, paths and user score from Firebase
-    LaunchedEffect(Unit) {
-        // Request location permission on start
-        if (!locationPermissionGranted) {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
-        }
-
+    DisposableEffect(Unit) {
         val userId = auth.currentUser?.uid ?: "anonymous"
-        database.getReference("leaderboard/$userId/score")
-            .addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    userScore = snapshot.getValue(Int::class.java) ?: 0
-                }
-                override fun onCancelled(error: DatabaseError) {}
-            })
+        val scoreRef = database.getReference("leaderboard/$userId/score")
+        val statusRef = database.getReference("village_path_status")
+        val pathsRef = database.getReference("rural_paths")
+        val alertsRef = database.getReference("location_alerts")
 
-        val pathStatusRef = database.getReference("village_path_status")
-        pathStatusRef.addValueEventListener(object : ValueEventListener {
+        val scoreListener = scoreRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                userScore = snapshot.getValue(Int::class.java) ?: 0
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+
+        val statusListener = statusRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val statusName = snapshot.getValue(String::class.java) ?: "DRY"
                 currentStatus = try { PathStatus.valueOf(statusName) } catch (e: Exception) { PathStatus.DRY }
@@ -362,10 +636,9 @@ fun NammaHaadiHomepage(
             override fun onCancelled(error: DatabaseError) {}
         })
 
-        val pathsRef = database.getReference("rural_paths")
-        pathsRef.addValueEventListener(object : ValueEventListener {
+        val pathsListener = pathsRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val newPaths = mutableListOf<Triple<List<LatLng>, PathStatus, String>>()
+                val newPaths = mutableListOf<RuralPath>()
                 snapshot.children.forEach { pathSnap ->
                     val points = mutableListOf<LatLng>()
                     pathSnap.child("points").children.forEach { pt ->
@@ -375,16 +648,14 @@ fun NammaHaadiHomepage(
                     }
                     val statusName = pathSnap.child("status").getValue(String::class.java) ?: "DRY"
                     val status = try { PathStatus.valueOf(statusName) } catch (e: Exception) { PathStatus.DRY }
-                    val id = pathSnap.key ?: ""
-                    if (points.isNotEmpty()) newPaths.add(Triple(points, status, id))
+                    if (points.isNotEmpty()) newPaths.add(RuralPath(points, status, pathSnap.key ?: ""))
                 }
                 savedPaths = newPaths
             }
             override fun onCancelled(error: DatabaseError) {}
         })
 
-        val alertsRef = database.getReference("location_alerts")
-        alertsRef.addValueEventListener(object : ValueEventListener {
+        val alertsListener = alertsRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newAlerts = mutableListOf<Triple<LatLng, PathStatus, String>>()
                 snapshot.children.forEach { alertSnap ->
@@ -398,6 +669,20 @@ fun NammaHaadiHomepage(
             }
             override fun onCancelled(error: DatabaseError) {}
         })
+
+        // Request location permission
+        if (!locationPermissionGranted) {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+
+        onDispose {
+            scoreRef.removeEventListener(scoreListener)
+            statusRef.removeEventListener(statusListener)
+            pathsRef.removeEventListener(pathsListener)
+            alertsRef.removeEventListener(alertsListener)
+        }
     }
 
     // Location updates for tracing
@@ -497,7 +782,9 @@ fun NammaHaadiHomepage(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary
                 )
             )
         },
@@ -582,14 +869,19 @@ fun NammaHaadiHomepage(
                 ),
                 uiSettings = MapUiSettings(myLocationButtonEnabled = true, zoomControlsEnabled = false)
             ) {
-                // Show saved paths with their specific colors
-                savedPaths.forEach { (points, status, id) ->
+                // Show saved paths with their specific colors and distinct flooded style
+                savedPaths.forEach { path ->
                     Polyline(
-                        points = points,
-                        color = status.color,
-                        width = 14f,
+                        points = path.points,
+                        color = path.status.color,
+                        width = 16f,
                         jointType = JointType.ROUND,
-                        pattern = if (status == PathStatus.FLOODED) listOf(Dash(30f), Gap(20f)) else null
+                        startCap = RoundCap(),
+                        endCap = RoundCap(),
+                        zIndex = 10f,
+                        pattern = if (path.status == PathStatus.FLOODED) {
+                            listOf(Dash(40f), Gap(20f)) 
+                        } else null
                     )
                 }
 
@@ -598,7 +890,8 @@ fun NammaHaadiHomepage(
                     Marker(
                         state = MarkerState(latLng),
                         title = "${status.label} Spot",
-                        snippet = "Reported by community",
+                        snippet = "Community Alert",
+                        zIndex = 20f,
                         icon = BitmapDescriptorFactory.defaultMarker(
                             when(status) {
                                 PathStatus.DRY -> BitmapDescriptorFactory.HUE_GREEN
@@ -609,40 +902,52 @@ fun NammaHaadiHomepage(
                     )
                 }
 
-                // Show currently tracing path
+                // Show currently tracing path with high visibility
                 if (tracedPoints.isNotEmpty()) {
                     Polyline(
                         points = tracedPoints,
-                        color = MaterialTheme.colorScheme.primary,
-                        width = 16f,
-                        jointType = JointType.ROUND
+                        color = Color(0xFF2196F3), // Vibrant Blue for tracing
+                        width = 20f,
+                        jointType = JointType.ROUND,
+                        startCap = RoundCap(),
+                        endCap = RoundCap(),
+                        zIndex = 30f
                     )
                 }
             }
 
             // Map Type Toggle Button
-            SmallFloatingActionButton(
-                onClick = { 
-                    mapType = if (mapType == MapType.HYBRID) MapType.TERRAIN else MapType.HYBRID 
-                },
+            Surface(
                 modifier = Modifier
-                    .padding(top = 80.dp, end = 16.dp)
-                    .align(Alignment.TopEnd),
-                containerColor = Color.White.copy(alpha = 0.9f),
-                contentColor = MaterialTheme.colorScheme.primary
+                    .padding(top = 16.dp, end = 16.dp)
+                    .align(Alignment.TopEnd)
+                    .clickable { mapType = if (mapType == MapType.HYBRID) MapType.TERRAIN else MapType.HYBRID },
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
             ) {
-                Icon(
-                    imageVector = if (mapType == MapType.HYBRID) Icons.Default.Menu else Icons.Default.Share, // Menu as "layers" icon fallback
-                    contentDescription = "Change Map Type"
-                )
+                Box(modifier = Modifier.padding(10.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Change Map Type",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             
             if (isTracing) {
-                Card(
+                Surface(
                     modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shadowElevation = 8.dp
                 ) {
-                    Text("📍 Recording Path...", modifier = Modifier.padding(12.dp), fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 3.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Recording Path...", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -732,10 +1037,10 @@ fun LeaderboardScreen(database: FirebaseDatabase) {
     }
 
     Column(modifier = Modifier.padding(24.dp).fillMaxHeight(0.8f)) {
-        Text("Top Contributors 🏆", fontWeight = FontWeight.ExtraBold, fontSize = 28.sp)
+        Text("Top Contributors 🏆", fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, color = MaterialTheme.colorScheme.primary)
         Text("Our local heroes mapping the way.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         
-        Spacer(Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         
         LazyColumn {
             itemsIndexed(contributors) { index, (name, score) ->
