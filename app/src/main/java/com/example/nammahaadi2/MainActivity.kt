@@ -39,11 +39,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import com.google.android.gms.location.*
 import com.google.android.gms.maps.model.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 import com.google.maps.android.compose.*
+
+private fun seedDummyData(database: FirebaseDatabase) {
+    val leaderboardRef = database.getReference("leaderboard")
+    val dummyUsers = listOf(
+        "Ramesh_K" to 240,
+        "Suresh_M" to 185,
+        "Ganesh_B" to 120,
+        "Lakshmi_P" to 95,
+        "Anand_S" to 60
+    )
+
+    dummyUsers.forEach { (name, score) ->
+        leaderboardRef.child("dummy_$name").child("score").setValue(score)
+        leaderboardRef.child("dummy_$name").child("name").setValue(name)
+    }
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -61,6 +78,8 @@ class MainActivity : ComponentActivity() {
         
         val statusRef = database.getReference("app_status")
         statusRef.setValue("Online: Namma Haadi")
+        
+        seedDummyData(database)
 
         setContent {
             var isDarkMode by remember { mutableStateOf(false) }
@@ -68,37 +87,274 @@ class MainActivity : ComponentActivity() {
             
             var currentScreen by remember { mutableStateOf("splash") }
             var isUserLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
+            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+            val scope = rememberCoroutineScope()
+            var userScore by remember { mutableStateOf(0) }
+
+            // Global listener for score
+            LaunchedEffect(isUserLoggedIn) {
+                if (isUserLoggedIn) {
+                    val userId = auth.currentUser?.uid ?: "anonymous"
+                    database.getReference("leaderboard/$userId/score").addValueEventListener(object : ValueEventListener {
+                        override fun onDataChange(snapshot: DataSnapshot) {
+                            userScore = snapshot.getValue(Int::class.java) ?: 0
+                        }
+                        override fun onCancelled(error: DatabaseError) {}
+                    })
+                }
+            }
 
             MaterialTheme(colorScheme = colorScheme) {
-                when (currentScreen) {
-                    "splash" -> SplashScreen { 
-                        currentScreen = if (isUserLoggedIn) "dashboard" else "welcome" 
-                    }
-                    "welcome" -> WelcomeScreen { currentScreen = "login" }
-                    "login" -> LoginPage(auth) { 
-                        isUserLoggedIn = true
-                        currentScreen = "dashboard" 
-                    }
-                    "dashboard" -> DashboardScreen(
-                        database = database,
-                        auth = auth,
-                        isDarkMode = isDarkMode,
-                        onToggleTheme = { isDarkMode = !isDarkMode },
-                        onGoToMap = { currentScreen = "map" },
-                        onViewLeaderboard = { currentScreen = "leaderboard_full" },
-                        onLogout = { 
-                            auth.signOut()
-                            isUserLoggedIn = false
-                            currentScreen = "welcome" 
+                if (currentScreen in listOf("dashboard", "map", "leaderboard_full", "profile", "settings")) {
+                    ModalNavigationDrawer(
+                        drawerState = drawerState,
+                        drawerContent = {
+                            ModalDrawerSheet(
+                                modifier = Modifier.width(300.dp),
+                                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                                drawerTonalElevation = 4.dp
+                            ) {
+                                DrawerHeader(auth.currentUser?.email ?: "User")
+                                Spacer(modifier = Modifier.height(12.dp))
+                                NavigationDrawerItem(
+                                    label = { Text("Dashboard", fontWeight = FontWeight.Bold) },
+                                    selected = currentScreen == "dashboard",
+                                    onClick = { 
+                                        currentScreen = "dashboard"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.Home, null) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                NavigationDrawerItem(
+                                    label = { Text("Map & Navigation", fontWeight = FontWeight.Bold) },
+                                    selected = currentScreen == "map",
+                                    onClick = { 
+                                        currentScreen = "map"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.Place, null) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                NavigationDrawerItem(
+                                    label = { Text("Leaderboard", fontWeight = FontWeight.Bold) },
+                                    selected = currentScreen == "leaderboard_full",
+                                    onClick = { 
+                                        currentScreen = "leaderboard_full"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.Star, null) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                NavigationDrawerItem(
+                                    label = { Text("My Profile", fontWeight = FontWeight.Bold) },
+                                    selected = currentScreen == "profile",
+                                    onClick = { 
+                                        currentScreen = "profile"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.Person, null) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                NavigationDrawerItem(
+                                    label = { Text("Settings", fontWeight = FontWeight.Bold) },
+                                    selected = currentScreen == "settings",
+                                    onClick = { 
+                                        currentScreen = "settings"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.Settings, null) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                
+                                Spacer(modifier = Modifier.weight(1f))
+                                
+                                NavigationDrawerItem(
+                                    label = { Text("Logout", color = MaterialTheme.colorScheme.error) },
+                                    selected = false,
+                                    onClick = { 
+                                        auth.signOut()
+                                        isUserLoggedIn = false
+                                        currentScreen = "welcome"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    icon = { Icon(Icons.Default.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
                         }
-                    )
-                    "map" -> NammaHaadiHomepage(database, auth, fusedLocationClient) { 
-                        currentScreen = "dashboard" 
+                    ) {
+                        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                            when (currentScreen) {
+                                "dashboard" -> DashboardScreen(
+                                    database = database,
+                                    auth = auth,
+                                    isDarkMode = isDarkMode,
+                                    onToggleTheme = { isDarkMode = !isDarkMode },
+                                    onGoToMap = { currentScreen = "map" },
+                                    onViewLeaderboard = { currentScreen = "leaderboard_full" },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                )
+                                "map" -> NammaHaadiHomepage(
+                                    database, auth, fusedLocationClient,
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onBack = { currentScreen = "dashboard" }
+                                )
+                                "leaderboard_full" -> FullLeaderboardScreen(
+                                    database, 
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onBack = { currentScreen = "dashboard" }
+                                )
+                                "profile" -> ProfileScreen(auth, userScore) { scope.launch { drawerState.open() } }
+                                "settings" -> SettingsScreen(isDarkMode, { isDarkMode = it }) { scope.launch { drawerState.open() } }
+                            }
+                        }
                     }
-                    "leaderboard_full" -> FullLeaderboardScreen(database) { 
-                        currentScreen = "dashboard" 
+                } else {
+                    // Logic for screens outside the drawer (Welcome, Login, etc.)
+                    when (currentScreen) {
+                        "splash" -> SplashScreen { 
+                            currentScreen = if (isUserLoggedIn) "dashboard" else "welcome" 
+                        }
+                        "welcome" -> WelcomeScreen { currentScreen = "login" }
+                        "login" -> LoginPage(auth) { 
+                            isUserLoggedIn = true
+                            currentScreen = "dashboard" 
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun DrawerHeader(email: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(24.dp)
+    ) {
+        Column {
+            Surface(
+                modifier = Modifier.size(64.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(email.take(1).uppercase(), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(email, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text("Community Explorer", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+        }
+    }
+}
+
+@Composable
+fun ProfileScreen(auth: FirebaseAuth, score: Int, onOpenDrawer: () -> Unit) {
+    val email = auth.currentUser?.email ?: "User"
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.primary)
+            }
+            Text("My Profile", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+        
+        Spacer(modifier = Modifier.height(40.dp))
+        
+        Surface(
+            modifier = Modifier.size(120.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(email.take(1).uppercase(), fontSize = 48.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(email, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Level: ${if (score > 100) "Path Legend" else "Local Scout"}", color = MaterialTheme.colorScheme.secondary)
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                ProfileStatRow("Total Points", "$score")
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                ProfileStatRow("Shortcuts Shared", "${score / 10}")
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                ProfileStatRow("Status Updates", "${score % 10}")
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileStatRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun SettingsScreen(isDarkMode: Boolean, onToggleTheme: (Boolean) -> Unit, onOpenDrawer: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.primary)
+            }
+            Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Dark Mode", fontWeight = FontWeight.Medium)
+                    Switch(checked = isDarkMode, onCheckedChange = onToggleTheme)
+                }
+                
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+                
+                Text("Notifications", fontWeight = FontWeight.Medium)
+                Text("Receive alerts for nearby road updates", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -147,7 +403,7 @@ fun DashboardScreen(
     onToggleTheme: () -> Unit,
     onGoToMap: () -> Unit,
     onViewLeaderboard: () -> Unit,
-    onLogout: () -> Unit
+    onOpenDrawer: () -> Unit
 ) {
     var userScore by remember { mutableStateOf(0) }
     val userEmail = auth.currentUser?.email ?: "Explorer"
@@ -173,21 +429,22 @@ fun DashboardScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text("Namaskara,", fontSize = 16.sp, color = MaterialTheme.colorScheme.secondary)
-                Text(userEmail.split("@")[0], fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenDrawer) {
+                    Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("Namaskara,", fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+                    Text(userEmail.split("@")[0], fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
-            Row {
-                IconButton(onClick = onToggleTheme) {
-                    Icon(
-                        imageVector = if (isDarkMode) Icons.Default.CheckCircle else Icons.Default.Check,
-                        contentDescription = "Toggle Theme",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                IconButton(onClick = onLogout) {
-                    Icon(Icons.Default.ExitToApp, "Logout", tint = MaterialTheme.colorScheme.error)
-                }
+            IconButton(onClick = onToggleTheme) {
+                Icon(
+                    imageVector = if (isDarkMode) Icons.Default.CheckCircle else Icons.Default.Check, 
+                    contentDescription = "Toggle Theme",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
 
@@ -288,13 +545,13 @@ fun DashboardActionCard(modifier: Modifier, title: String, icon: ImageVector, co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FullLeaderboardScreen(database: FirebaseDatabase, onBack: () -> Unit) {
+fun FullLeaderboardScreen(database: FirebaseDatabase, onOpenDrawer: () -> Unit, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Community Heroes", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, null) }
                 }
             )
         }
@@ -579,7 +836,8 @@ fun NammaHaadiHomepage(
     database: FirebaseDatabase, 
     auth: FirebaseAuth, 
     fusedLocationClient: FusedLocationProviderClient,
-    onLogout: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState()
@@ -753,16 +1011,10 @@ fun NammaHaadiHomepage(
             TopAppBar(
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(auth.currentUser?.email?.take(1)?.uppercase() ?: "U", color = Color.White, fontWeight = FontWeight.Bold)
-                            }
+                        IconButton(onClick = onOpenDrawer) {
+                            Icon(Icons.Default.Menu, "Menu")
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(8.dp))
                         Column {
                             Text("Namma Haadi", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             Text("$userScore Points", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
@@ -772,12 +1024,6 @@ fun NammaHaadiHomepage(
                 actions = {
                     IconButton(onClick = { showLeaderboard = true }) {
                         Icon(Icons.Default.Star, "Leaderboard", tint = Color(0xFFFBC02D), modifier = Modifier.size(28.dp))
-                    }
-                    IconButton(onClick = { 
-                        auth.signOut()
-                        onLogout()
-                    }) {
-                        Icon(Icons.Default.ExitToApp, "Logout")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -1018,19 +1264,20 @@ fun NammaHaadiHomepage(
 
 @Composable
 fun LeaderboardScreen(database: FirebaseDatabase) {
-    var contributors by remember { mutableStateOf(listOf<Pair<String, Int>>()) }
+    var contributors by remember { mutableStateOf(listOf<Triple<String, String, Int>>()) }
     
     LaunchedEffect(Unit) {
         database.getReference("leaderboard").orderByChild("score").limitToLast(10)
             .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    val list = mutableListOf<Pair<String, Int>>()
+                    val list = mutableListOf<Triple<String, String, Int>>()
                     snapshot.children.forEach {
-                        val name = it.key?.take(8) ?: "User"
+                        val id = it.key ?: ""
+                        val name = it.child("name").getValue(String::class.java) ?: "Explorer ${id.take(4)}"
                         val score = it.child("score").getValue(Int::class.java) ?: 0
-                        list.add(name to score)
+                        list.add(Triple(id, name, score))
                     }
-                    contributors = list.sortedByDescending { it.second }
+                    contributors = list.sortedByDescending { it.third }
                 }
                 override fun onCancelled(error: DatabaseError) {}
             })
@@ -1040,10 +1287,10 @@ fun LeaderboardScreen(database: FirebaseDatabase) {
         Text("Top Contributors 🏆", fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, color = MaterialTheme.colorScheme.primary)
         Text("Our local heroes mapping the way.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(Modifier.height(24.dp))
         
         LazyColumn {
-            itemsIndexed(contributors) { index, (name, score) ->
+            itemsIndexed(contributors) { index, (id, name, score) ->
                 LeaderboardItem(index, name, score)
             }
         }
@@ -1075,11 +1322,14 @@ fun LeaderboardItem(index: Int, name: String, score: Int) {
                 Text(medal, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text("Haadi Explorer $name", fontWeight = FontWeight.Bold)
-                    Text(if (score > 50) "Path Legend" else "Contributor", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                    Text(name, fontWeight = FontWeight.Bold)
+                    Text("${score / 10} Shortcuts Shared", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
                 }
             }
-            Text("$score pts", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+            Column(horizontalAlignment = Alignment.End) {
+                Text("$score", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                Text("pts", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+            }
         }
     }
 }
