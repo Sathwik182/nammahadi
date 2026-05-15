@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "509562816996",
+    "project_id": "nammahaadi-dd116",
+    "storage_bucket": "nammahaadi-dd116.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:509562816996:android:9d1c59b2bc3dab58ea9ff1",
+        "android_client_info": {
+          "package_name": "com.example.nammahaadi2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAr1TEf96At9XSFHUU47ZXWqaJCeI3A9WQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
