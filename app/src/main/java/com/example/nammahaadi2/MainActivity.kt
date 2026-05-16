@@ -61,10 +61,15 @@ private fun seedDummyData(database: FirebaseDatabase) {
     val dummyUsers = listOf(
         Triple("Ramesh_K", 1240, 45),
         Triple("Suresh_M", 985, 32),
+        Triple("Manjunath_H", 1100, 38),
         Triple("Ganesh_B", 720, 28),
+        Triple("Shanthi_S", 850, 25),
         Triple("Lakshmi_P", 595, 19),
+        Triple("Basavaraj_Y", 680, 20),
         Triple("Anand_S", 460, 15),
+        Triple("Rajeshwari_N", 420, 14),
         Triple("Vijay_R", 330, 12),
+        Triple("Praveen_V", 290, 10),
         Triple("Kavitha_L", 215, 8),
         Triple("Priya_D", 180, 22),
         Triple("Sunil_G", 150, 5)
@@ -231,7 +236,8 @@ class MainActivity : ComponentActivity() {
                                 "map" -> NammaHaadiHomepage(
                                     database, auth, fusedLocationClient,
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onBack = { currentScreen = "dashboard" }
+                                    onBack = { currentScreen = "dashboard" },
+                                    onViewLeaderboard = { currentScreen = "leaderboard_full" }
                                 )
                                 "leaderboard_full" -> FullLeaderboardScreen(
                                     database, 
@@ -899,13 +905,13 @@ fun NammaHaadiHomepage(
     auth: FirebaseAuth, 
     fusedLocationClient: FusedLocationProviderClient,
     onOpenDrawer: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onViewLeaderboard: () -> Unit
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState()
     var showBottomSheet by remember { mutableStateOf(false) }
     var currentStatus by remember { mutableStateOf(PathStatus.DRY) }
-    var showLeaderboard by remember { mutableStateOf(false) }
     var mapType by remember { mutableStateOf(MapType.HYBRID) }
     
     // Route planning state
@@ -1091,7 +1097,7 @@ fun NammaHaadiHomepage(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showLeaderboard = true }) {
+                    IconButton(onClick = onViewLeaderboard) {
                         Icon(Icons.Default.Star, "Leaderboard", tint = Color(0xFFFBC02D), modifier = Modifier.size(28.dp))
                     }
                 },
@@ -1418,83 +1424,33 @@ fun NammaHaadiHomepage(
         if (showBottomSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showBottomSheet = false },
-                sheetState = sheetState,
-                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+                sheetState = sheetState
             ) {
-                var description by remember { mutableStateOf("") }
-                Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
-                    Text("Update Road Condition", fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
-                    Text("Help neighbors by reporting the current status.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    
-                    Spacer(Modifier.height(16.dp))
-                    
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = { Text("What's happening? (e.g. Floods, Raining)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Optional description...") },
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    
-                    Spacer(Modifier.height(24.dp))
-                    
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                ) {
+                    Text("Update Road Status", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
                     PathStatus.values().forEach { status ->
-                        Button(
-                            onClick = {
-                                // 1. Update Global Status
-                                database.getReference("village_path_status").setValue(status.name)
-                                
-                                // 2. Drop a local marker at current location
-                                val userLoc = cameraPositionState.position.target 
-                                val alertId = database.getReference("location_alerts").push().key ?: ""
-                                database.getReference("location_alerts/$alertId").setValue(mapOf(
-                                    "lat" to userLoc.latitude,
-                                    "lng" to userLoc.longitude,
-                                    "status" to status.name,
-                                    "description" to description.trim(),
-                                    "reporter" to (auth.currentUser?.email ?: "Community")
-                                ))
-
-                                val userId = auth.currentUser?.uid ?: "anonymous"
-                                database.getReference("leaderboard/$userId").runTransaction(object : Transaction.Handler {
-                                    override fun doTransaction(mutableData: MutableData): Transaction.Result {
-                                        val score = mutableData.child("score").getValue(Int::class.java) ?: 0
-                                        val warnings = mutableData.child("warnings").getValue(Int::class.java) ?: 0
-                                        
-                                        mutableData.child("score").value = score + 5 // +5 for alerts now!
-                                        mutableData.child("warnings").value = warnings + 1
-                                        mutableData.child("name").value = auth.currentUser?.email?.split("@")?.get(0) ?: "Explorer"
-                                        
-                                        return Transaction.success(mutableData)
-                                    }
-                                    override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
-                                })
-                                showBottomSheet = false
-                                Toast.makeText(context, "Community alert shared! +5 pts", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth().height(60.dp).padding(vertical = 4.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = status.color),
-                            shape = RoundedCornerShape(16.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    currentStatus = status
+                                    showBottomSheet = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(status.icon, fontSize = 20.sp)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Mark as ${status.label}", fontWeight = FontWeight.Bold)
-                            }
+                            Text(status.icon, fontSize = 24.sp)
+                            Spacer(Modifier.width(16.dp))
+                            Text(status.label, fontWeight = FontWeight.Medium)
                         }
                     }
-                    Spacer(Modifier.height(48.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
-            }
-        }
-
-        if (showLeaderboard) {
-            ModalBottomSheet(
-                onDismissRequest = { showLeaderboard = false },
-                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-            ) {
-                LeaderboardScreen(database)
             }
         }
     }
